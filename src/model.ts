@@ -96,18 +96,6 @@ export const START_SPEED = 1;
 export const START_TRACE = false;
 export const START_ZONES = false;
 
-/** The app's model events as the parser writes them (extract/entity.py `Throw`): a throw at beat `t` by juggler `j`'s
- *  `hand`, of `kind` (self, pass, zip, hold, none, empty), to juggler `to`, landing `off` beats later (default `v`). */
-export interface ModelEvent {
-  t: number;
-  j: string;
-  hand: string;
-  kind: string;
-  to: string;
-  v: number;
-  off?: number | null;
-}
-
 export interface PatternThrow {
   /** beat, 0 <= t < period */
   t: number;
@@ -172,6 +160,7 @@ function assemble(
     .filter((r) => r.v > 0)
     .sort((a, b) => a.t - b.t || (a.hand === b.hand ? 0 : a.hand === "L" ? -1 : 1))
     .map((r) => ({ ...r, next: -1, nextShift: 0, sib: 0 }));
+  if (!throws.length) throw new Error("no throws: nothing to lay out");
   const slot = (t: number, h: Hand) => `${((t % period) + period) % period}|${h}`;
   const out = new Map<string, number[]>();
   throws.forEach((th, i) => {
@@ -207,7 +196,7 @@ function assemble(
   return { text, sync, period, throws, balls: Math.round(balls), uniform, mirrorPeriod, multiplex };
 }
 
-/** Vanilla async (`531`, `b97531`), multiplex (`[33]1`, `[54]24`) and sync (`(4,2x)`, `([44x],2)`, `(6x,4)*`).
+/** Vanilla async (`531`, `b97531`), multiplex (`[54]24`, `[43]23`) and sync (`(4,2x)*`, `(4,4)`, `(6x,4)*`).
  *  Sync pairs are (left, right). Uppercase letters are read as lowercase. */
 export function parseSiteswap(input: string): Pattern {
   const text = input.replace(/\s+/g, "").toLowerCase();
@@ -277,46 +266,6 @@ function parseSync(text: string): Pattern {
         raw.push({ t: 2 * k, hand, v, toHand: x ? other(hand) : hand, token });
   });
   return assemble(text, true, period, raw, star ? rows.length * 2 : null);
-}
-
-/** A siteswap as the app's model events (one juggler "A"), so passing patterns can come in by the same door. */
-export function fromSiteswap(text: string): ModelEvent[] {
-  const p = parseSiteswap(text);
-  return p.throws.map((th) => ({
-    t: th.t,
-    j: "A",
-    hand: th.hand,
-    kind: th.v === 2 && th.toHand === th.hand ? "hold" : th.v === 1 ? "zip" : "self",
-    to: "A",
-    v: th.v,
-    off: th.v,
-  }));
-}
-
-/** One juggler's model events (over one period of `period` beats) as a pattern. Passes wait for step (c). */
-export function fromEvents(events: ModelEvent[], period?: number, text = "events"): Pattern {
-  const ev = events.filter((e) => e.kind !== "none" && e.kind !== "empty" && (e.off ?? e.v) > 0);
-  if (new Set(events.map((e) => e.j)).size > 1 || ev.some((e) => e.to !== e.j))
-    throw new Error("passing patterns come later (step c): one juggler only for now");
-  const ts = [...new Set(events.map((e) => e.t))].sort((a, b) => a - b);
-  const step = ts.length > 1 ? Math.min(...ts.slice(1).map((t, i) => t - ts[i])) : 1;
-  const T = period ?? ts[ts.length - 1] - ts[0] + step;
-  const sync = ts.some(
-    (t) => events.filter((e) => e.t === t && e.hand !== events.find((f) => f.t === t)!.hand).length,
-  );
-  const handAt = (t: number) => {
-    const k = ((t % T) + T) % T;
-    const e = events.find((f) => Math.abs((((f.t % T) + T) % T) - k) < 1e-9);
-    if (!e) throw new Error(`nothing thrown at beat ${k}`);
-    return e.hand as Hand;
-  };
-  const raw: Raw[] = ev.map((e) => {
-    const off = e.off ?? e.v;
-    const hand = e.hand as Hand;
-    const toHand = sync ? (e.kind === "hold" ? hand : off % 4 === 0 ? hand : other(hand)) : handAt(e.t + off);
-    return { t: e.t - ts[0], hand, v: off, toHand, token: String(off) };
-  });
-  return assemble(text, sync, T, raw, null);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -498,7 +447,7 @@ export function kalvanHand(balls: number, p: Params, arcSpacing = KALVAN_ARC_SPA
 }
 
 /** The smallest fountain arc spacing (to the cm) at which no two balls, in flight or in the hands, come closer than
- *  the error zone. Not the default (that is Kalvan's 0.71 m): offered as "the smallest spacing that clears". */
+ *  the error zone. Not the default (that is `startArcSpacing`): offered as "the smallest spacing that clears". */
 export function autoArcSpacing(balls: number, p: Params): number {
   const pat = parseSiteswap(balls.toString(36));
   for (let P = Math.ceil(p.errorZone * 100) / 100; P < 5; P = Math.round(P * 100 + 1) / 100) {
@@ -784,8 +733,21 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     });
     return vs;
   };
+  // Balls that share a hand at one instant share its point: thrown together (a multiplex) they leave from the first
+  // ball's launch point, and caught together (for the next multiplex) they land on the first one's landing point.
+  // shortcut: two balls that leave together AND land together (the 3s of [33]) keep their own landing points, since
+  // one shared path would put them on top of each other; they need a second dimension (a stack), upgrade then.
+  const launchLead = pat.throws.map((th, i) => i - th.sib);
+  const slotOf = (i: number) => pat.throws[i].next - pat.throws[pat.throws[i].next].sib;
+  const landLead = pat.throws.map((_, i) =>
+    pat.throws.findIndex(
+      (_, j) =>
+        j === i || (kinds[j] === "throw" && slotOf(j) === slotOf(i) && launchLead[j] !== launchLead[i]),
+    ),
+  );
+  const lead: Lead = { launch: launchLead, land: landLead };
   const build = (classOf: number[], vs: Var[], dt = SEARCH_DT) =>
-    place(pat, params, K, kinds, flights, dwells, classOf, vs, beat, dt);
+    place(pat, params, K, kinds, flights, dwells, classOf, vs, lead, beat, dt);
   const viol = (l: Placed) => {
     let v = 0;
     // linear in the shortfall (with a hair of margin), so a near-miss is never traded for less hand travel
@@ -800,8 +762,11 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
   let reverseCost = REVERSE_HARD;
   const reversed = (vs: Var[], classOf: number[]) => {
     const out = new Set<number>();
-    classOf.forEach((c) => {
-      if (c >= 0 && vs[c].a >= vs[c].c - 1e-6) out.add(c);
+    classOf.forEach((c, i) => {
+      if (c < 0) return;
+      const j = launchLead[i];
+      const a = kinds[j] === "throw" ? vs[classOf[j]].a : K.xi;
+      if (a >= vs[classOf[landLead[i]]].c - 1e-6) out.add(c);
     });
     return out;
   };
@@ -1083,7 +1048,7 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
             arcSpacingAdjustable: fountainLike,
           };
     const messages: string[] = [...splitMsgs, ...orientMsgs];
-    if (K.omega <= 0) messages.push("Impossible: the dwell ratio leaves no flight time.");
+    if (pat.uniform && K.omega <= 0) messages.push("Impossible: the dwell ratio leaves no flight time.");
     if (collisions.length) {
       const c = collisions[0];
       messages.push(
@@ -1139,6 +1104,12 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       }
     }
   return out;
+}
+
+/** for each throw, the throw whose launch point / landing point it shares (itself when it has its own) */
+interface Lead {
+  launch: number[];
+  land: number[];
 }
 
 interface Placed {
@@ -1215,6 +1186,7 @@ function place(
   dwells: number[],
   classOf: number[],
   vars: Var[],
+  lead: Lead,
   beat: number,
   dt = FINE_DT,
 ): Placed {
@@ -1227,9 +1199,9 @@ function place(
     let launch: Vec;
     let land: Vec;
     if (kind === "throw") {
-      const v = vars[classOf[i]];
-      launch = { x: sh * v.a, y: 0 };
-      land = { x: sc * v.c, y: K.dy };
+      const j = lead.launch[i];
+      launch = { x: sh * (kinds[j] === "throw" ? vars[classOf[j]].a : K.xi), y: 0 };
+      land = { x: sc * vars[classOf[lead.land[i]]].c, y: K.dy };
     } else if (kind === "hold") {
       launch = { x: sh * K.xi, y: 0 };
       land = { x: sh * K.xo, y: K.dy };
@@ -1330,7 +1302,7 @@ function flightAt(th: LThrow, s: number, g: number): Vec {
  *  difference of two balls, so their separation vector is linear in time (Kalvan's "lower ball's frame": each sees
  *  the other move in a straight line) and the minimum over the overlap of the two flights is the closest approach
  *  of a segment to the origin, in closed form. Later periods are tiled (flights spill past the period). Holds
- *  are not flights (zips and hurried throws, short flights, are): every ball held in a hand is checked by `handApproaches`. Two balls
+ *  are not flights (zips and hurried throws, short flights, are, though not against each other): every ball held in a hand is checked by `handApproaches`. Two balls
  *  leaving or arriving together (a multiplex) cannot be apart at the hand itself: they are checked against the
  *  error zone over the middle 60 % of the flight and against the ball diameter where that window starts and ends. */
 function approaches(throws: LThrow[], T: number, p: Params): Approach[] {
@@ -1342,6 +1314,8 @@ function approaches(throws: LThrow[], T: number, p: Params): Approach[] {
     for (let y = x; y < fl.length; y++) {
       const A = fl[x];
       const B = fl[y];
+      // short throws have fixed points at one height, outside the search: not checked against each other
+      if (A.kind === "short" && B.kind === "short") continue;
       let best: Approach | null = null;
       let edge: Approach | null = null;
       const nLo = Math.floor((A.t - (B.t + B.flight)) / T) - 1;
@@ -1478,8 +1452,7 @@ export function handAt(lay: BallLayout, hand: Hand, s: number): Vec {
   const T = lay.period;
   const t = ((s % T) + T) % T;
   let k = pts.findIndex((p) => p.t > t) - 1;
-  if (k === -2) k = pts.length - 1;
-  if (k === -1) k = pts.length - 1;
+  if (k < 0) k = pts.length - 1;
   const a = pts[k];
   const b = pts[(k + 1) % pts.length];
   let t0 = a.t;
@@ -1495,16 +1468,7 @@ export function handAt(lay: BallLayout, hand: Hand, s: number): Vec {
     const k = lay.params.handTangent ?? 1;
     return hermite(a.p, { x: a.v.x * k, y: a.v.y * k }, b.p, { x: b.v.x * k, y: b.v.y * k }, dt, u);
   }
-  const m0 = damp(a.v, dt, 0.12);
-  const m1 = damp(b.v, dt, 0.12);
-  const h00 = 2 * u ** 3 - 3 * u ** 2 + 1;
-  const h10 = u ** 3 - 2 * u ** 2 + u;
-  const h01 = -2 * u ** 3 + 3 * u ** 2;
-  const h11 = u ** 3 - u ** 2;
-  return {
-    x: h00 * a.p.x + h10 * m0.x + h01 * b.p.x + h11 * m1.x,
-    y: h00 * a.p.y + h10 * m0.y + h01 * b.p.y + h11 * m1.y,
-  };
+  return hermite(a.p, damp(a.v, dt, 0.12), b.p, damp(b.v, dt, 0.12), 1, u);
 }
 
 /** what ballsAt and handAt need of a layout (also what `place` has before the Layout is assembled) */
@@ -1527,10 +1491,11 @@ export function ballsAt(lay: BallLayout, s: number): DrawnBall[] {
   const out: DrawnBall[] = [];
   for (const th of lay.throws) {
     const life = th.nextT - th.t;
-    const n = Math.floor((s - th.t) / T);
-    for (const m of [n, n - 1, n - 2, n - 3]) {
+    // every earlier period's ball that is still alive (a 9 lives 4.5 periods of the cascade)
+    for (let m = Math.floor((s - th.t) / T); ; m--) {
       const u = s - (th.t + m * T);
-      if (u < 0 || u >= life) continue;
+      if (u >= life) break;
+      if (u < 0) continue;
       const t0 = th.t + m * T;
       if (th.kind === "hold")
         out.push({ p: handAt(lay, th.hand, s), i: th.i, flying: false, hand: th.hand, t0 });
@@ -1570,10 +1535,10 @@ export function tubes(lay: Layout, mode: "spacetime" | "space", n = 48): { th: L
       } else {
         const s = th.t + (th.flight * k) / n;
         for (const o of fl) {
-          for (let m = Math.floor((s - o.t) / T) - 2; m <= Math.floor((s - o.t) / T) + 1; m++) {
+          for (let m = Math.floor((s - o.t) / T) + 1; ; m--) {
             const ot = o.t + m * T;
-            if (o.i === th.i && m === 0) continue;
-            if (s < ot || s > ot + o.flight) continue;
+            if (s > ot + o.flight) break;
+            if (s < ot || (o.i === th.i && m === 0)) continue;
             near = Math.min(near, dist(p, flightAt({ ...o, t: ot }, s, g)));
           }
         }
