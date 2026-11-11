@@ -11,7 +11,9 @@ and the original program is kept under `juggling/archive/optimal-juggler/`.
 ```
 npm install
 npm run dev      # http://localhost:5173/optimal-juggling/
-npm run build    # dist/, deployed to GitHub Pages by .github/workflows/pages.yml on push to main
+npm test         # test/optimal.test.mjs: the model against Kalvan's numbers (plain node, about 30 s)
+npm run build    # dist/, tested and deployed to GitHub Pages by .github/workflows/pages.yml on push to main
 ```
 
-React, Vite, TypeScript; `src/model.ts` is the model (layouts, the search, tubes), `src/Optimal.tsx` the page.
+React, Vite, TypeScript; `src/model.ts` is the model (layouts, the search, tubes), `src/Optimal.tsx` the page, and
+`src/worker.ts` runs the searches off the page's thread.

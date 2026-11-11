@@ -1,5 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   arcPoints,
   ballsAt,
@@ -11,16 +10,16 @@ import {
   START_ZONES,
   DEFAULT_PARAMS,
   handAt,
-  nearestFeasible,
-  optimalLayouts,
   parseSiteswap,
   tubes,
   type Layout,
+  type nearestFeasible,
   type Params,
   type Pattern,
 } from "./model";
 import "./optimal.css";
 
+type Feasible = ReturnType<typeof nearestFeasible>;
 const EXAMPLES = ["3", "5", "6", "7", "531", "441", "55500", "b97531", "(4,2x)*", "(6x,4)*", "[54]24"];
 // the speed slider runs on a log scale from 1/128 to full, as his Speed menu did (full, 1/2, 1/4 ... 1/128)
 const SPEED_MIN_LOG = -7;
@@ -30,14 +29,36 @@ const speedLabel = (v: number) => {
   return `${v.toFixed(v < 0.1 ? 3 : 2)}×`;
 };
 
-const pathOf = (ss: string) => "/" + encodeURI(ss);
+// GitHub Pages serves one file, so the siteswap lives after the # (…/#/531)
+const hrefOf = (ss: string) => "#/" + encodeURI(ss);
+const onHash = (f: () => void) => {
+  window.addEventListener("hashchange", f);
+  return () => window.removeEventListener("hashchange", f);
+};
+const readHash = () => {
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw; // (a malformed %-escape: shown as typed, and the parser says what is wrong)
+  }
+};
+
+/** Run one of the model's searches in a worker; terminate the worker to abandon it. */
+function search<T>(fn: "optimalLayouts" | "nearestFeasible", args: unknown[], done: (v: T) => void) {
+  const w = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  w.onmessage = (e) => {
+    done(e.data);
+    w.terminate();
+  };
+  w.postMessage({ fn, args });
+  return w;
+}
 
 /** Jack Kalvan's Optimal Juggler, for any siteswap: his inputs and readout, the pattern animated in a flat front
  *  view, and our tubes view of how close the balls come (docs/optimal-juggling.md in passing-pattern-parser, steps a and b). */
 export default function Optimal() {
-  const { ss } = useParams();
-  const text = ss ?? START_SITESWAP;
-  const nav = useNavigate();
+  const text = useSyncExternalStore(onHash, readHash) || START_SITESWAP;
   const [draft, setDraft] = useState(text);
   useEffect(() => setDraft(text), [text]);
   const [params, setParams] = useState<Params>(DEFAULT_PARAMS);
@@ -67,12 +88,22 @@ export default function Optimal() {
   useEffect(() => {
     pickedRef.current = picked;
   }, [picked]);
-  // (the search can take most of a second for long patterns: the sliders move first, the drawing follows)
-  const dparams = useDeferredValue(params);
-  const options = useMemo(
-    () => (parsed.pat ? optimalLayouts(parsed.pat, dparams, { hint: pickedRef.current }) : null),
-    [parsed, dparams],
-  );
+  // (the search runs in a worker, a second or a minute for long patterns: the last drawing stays until it answers,
+  // and a search the settings have moved on from is abandoned)
+  const [options, setOptions] = useState<Layout[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!parsed.pat) return setOptions(null);
+    setBusy(true);
+    const w = search<Layout[]>("optimalLayouts", [parsed.pat, params, { hint: pickedRef.current }], (v) => {
+      setOptions(v);
+      setBusy(false);
+    });
+    return () => {
+      w.terminate();
+      setBusy(false);
+    };
+  }, [parsed, params]);
   if (picked && picked.pattern.text !== parsed.pat?.text) setPicked(null);
   let choice = 0;
   let lost = false;
@@ -92,12 +123,13 @@ export default function Optimal() {
   const [kept, setKept] = useState<Layout | null>(null);
   if (fresh && fresh !== kept) setKept(fresh);
   const lay = fresh ?? kept;
-  const [feasible, setFeasible] = useState<{ key: string; v: ReturnType<typeof nearestFeasible> } | null>(
-    null,
-  );
+  const [feasible, setFeasible] = useState<{ key: string; v: Feasible } | null>(null);
+  const [finding, setFinding] = useState("");
   const fkey = text + JSON.stringify(params);
   const set = (k: keyof Params) => (v: number) => setParams((p) => ({ ...p, [k]: v }));
-  const go = (s: string) => nav(pathOf(s));
+  const go = (s: string) => {
+    window.location.hash = hrefOf(s);
+  };
   const r = lay?.readout;
   const period = lay?.period ?? 0;
   useEffect(() => {
@@ -155,13 +187,13 @@ export default function Optimal() {
       </form>
       <div className="oj-examples">
         {EXAMPLES.map((e) => (
-          <Link key={e} to={pathOf(e)} className={"chip" + (e === text ? " on" : "")}>
+          <a key={e} href={hrefOf(e)} className={"chip" + (e === text ? " on" : "")}>
             {e}
-          </Link>
+          </a>
         ))}
       </div>
-      <p className="error oj-err" role="status">
-        {parsed.err ?? ""}
+      <p className={(parsed.err ? "error" : "muted") + " oj-err"} role="status">
+        {parsed.err ?? (busy ? "searching…" : "")}
       </p>
       {lay && r && (
         <div className="oj-grid">
@@ -363,7 +395,7 @@ export default function Optimal() {
                       <button
                         className="chip"
                         title="the distance on Kalvan's six-ball screen"
-                        onClick={() => setParams((p) => ({ ...p, arcSpacing: undefined }))}
+                        onClick={() => setParams((p) => ({ ...p, arcSpacing: KALVAN_ARC_SPACING }))}
                       >
                         {KALVAN_ARC_SPACING} m
                       </button>
@@ -468,9 +500,15 @@ export default function Optimal() {
                   ) : (
                     <button
                       className="chip"
-                      onClick={() => setFeasible({ key: fkey, v: nearestFeasible(lay.pattern, params) })}
+                      disabled={finding === fkey}
+                      onClick={() => {
+                        setFinding(fkey);
+                        search<Feasible>("nearestFeasible", [lay.pattern, params], (v) =>
+                          setFeasible({ key: fkey, v }),
+                        );
+                      }}
                     >
-                      find the nearest feasible values
+                      {finding === fkey ? "searching…" : "find the nearest feasible values"}
                     </button>
                   ))}
               </div>
@@ -496,9 +534,10 @@ export default function Optimal() {
           straight line), and the tubes.
         </p>
         <p className="muted">
-          A flat front view: x across, height up, no depth. Zips, 2x and other throws too short for the dwell
-          get a fixed short flight and are left out of the search and the check, as are balls held in a hand.
-          Passing patterns come next.
+          A flat front view: x across, height up, no depth. Balls held in a hand are checked along the hand's
+          path. Zips and other throws too short for the dwell get a fixed short flight between fixed points:
+          they are left out of the search and are not checked against each other. Balls thrown together in a
+          multiplex leave from one point.
         </p>
       </div>
     </section>
