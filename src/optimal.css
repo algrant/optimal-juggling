@@ -1,0 +1,516 @@
+/* /optimal: Kalvan's Optimal Juggler in the app's own look (screens/Optimal.tsx) */
+:root {
+  --oj-trace: #c4473a;
+  --oj-zone: rgba(56, 132, 214, 0.35);
+  --oj-mark: #1c1f23;
+}
+:root[data-theme="dark"] {
+  --oj-trace: #ff8a7a;
+  --oj-zone: rgba(127, 182, 224, 0.32);
+  --oj-mark: #e8eaed;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --oj-trace: #ff8a7a;
+    --oj-zone: rgba(127, 182, 224, 0.32);
+    --oj-mark: #e8eaed;
+  }
+}
+/* wider than the reading column on big screens (App puts .wide on main for /optimal) */
+main.wide {
+  max-width: 1120px;
+}
+.oj h1 {
+  margin: 4px 0;
+}
+.oj-intro {
+  margin: 0 0 8px;
+  max-width: 70ch;
+}
+.oj-err {
+  margin: 0 0 8px;
+  min-height: 1.5em;
+}
+.oj-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 12px;
+}
+.oj-examples .chip {
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.oj-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "stage" "side" "throws";
+}
+@media (min-width: 900px) {
+  .oj-grid {
+    grid-template-columns: 340px minmax(0, 1fr);
+    grid-template-areas: "side stage" "throws throws";
+    align-items: start;
+  }
+}
+.oj-stagecol {
+  grid-area: stage;
+}
+.oj-side {
+  grid-area: side;
+}
+.oj-throws {
+  grid-area: throws;
+}
+.oj-grid .card {
+  margin-bottom: 0;
+}
+.oj-side .card + .card {
+  margin-top: 12px;
+}
+.oj-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.oj-check {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+.oj-tools .seg.off {
+  opacity: 0.45;
+}
+.oj-tools .seg button:disabled {
+  cursor: default;
+}
+.oj-tools .seg button {
+  line-height: 20px;
+}
+.oj-speed {
+  grid-area: speed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.oj-speed input[type="range"] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+.oj-speed-label {
+  font-size: 12px;
+  color: var(--mute);
+  flex: 0 0 4.6em;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.oj-stage {
+  container-type: inline-size;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.oj-stage svg {
+  display: block;
+  width: 100%;
+  /* one size for every pattern: the viewBox scales inside it */
+  height: clamp(280px, 62svh, 560px);
+}
+.oj-floor {
+  stroke: var(--line);
+  stroke-width: 0.004;
+}
+.oj-ball {
+  fill: var(--ink);
+}
+.oj-ball.faint {
+  opacity: 0.55;
+}
+.oj-zone {
+  fill: var(--oj-zone);
+}
+.oj-hand {
+  fill: var(--accent);
+}
+.oj-trace {
+  fill: none;
+  stroke: var(--oj-trace);
+  stroke-width: 0.005;
+}
+.oj-trace.thin {
+  stroke: var(--ink);
+  stroke-width: 0.002;
+  opacity: 0.5;
+}
+.oj-mark line {
+  stroke: var(--oj-mark);
+  stroke-width: 0.004;
+}
+.oj-mark circle {
+  fill: var(--oj-mark);
+}
+.oj-mark text {
+  fill: var(--oj-mark);
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 0.008;
+}
+.oj-mark.bad text,
+.oj-mark.bad circle {
+  fill: #d33;
+}
+.oj-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 8px;
+  min-height: 3.6em;
+  align-content: flex-start;
+}
+@media (max-width: 600px) {
+  .oj-legend {
+    min-height: 6.5em;
+  }
+}
+.oj-sw {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-left: 6px;
+}
+.oj-settings summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+}
+.oj-settings summary::-webkit-details-marker {
+  display: none;
+}
+.oj-settings summary h2 {
+  margin: 0;
+}
+.oj-settings summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--mute);
+}
+.oj-settings[open] summary {
+  margin-bottom: 8px;
+}
+.oj-settings[open] summary::after {
+  content: "▴";
+}
+.oj-settings summary .muted {
+  font-size: 13px;
+}
+.oj-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.oj-row {
+  min-height: 36px;
+}
+.oj-arcrow {
+  min-height: 81px;
+}
+.oj-readsub {
+  margin: 0 0 4px;
+  min-height: 1.5em;
+  font-size: 13px;
+}
+.oj-row b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.oj-pm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.oj-pm .btn {
+  padding: 2px 10px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.oj-pm input[type="range"] {
+  width: 120px;
+  accent-color: var(--accent);
+}
+.oj-note {
+  font-size: 13px;
+}
+.oj-settings > .chip {
+  margin-top: 8px;
+  cursor: pointer;
+}
+.oj-row .chip {
+  padding: 1px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.oj-read dl {
+  margin: 0;
+}
+.oj-out {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.oj-out dt {
+  color: var(--ink);
+}
+.oj-out.sub dt {
+  padding-left: 1.5em;
+  color: var(--mute);
+}
+.oj-out dd {
+  margin: 0;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.oj-min {
+  font-size: 14px;
+  margin: 8px 0;
+  min-height: 2.9em;
+}
+.oj-read h3 {
+  font-size: 13px;
+  color: var(--mute);
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+.oj-msg {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  min-height: 9em;
+}
+.oj-msg p {
+  margin: 2px 0;
+}
+.oj-msg.bad {
+  border-color: #d33;
+}
+.oj-msg .chip {
+  cursor: pointer;
+  margin-top: 4px;
+}
+.oj-tablewrap {
+  overflow-x: auto;
+}
+.oj-throws table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+.oj-throws th,
+.oj-throws td {
+  text-align: right;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.oj-throws th:first-child,
+.oj-throws td:first-child {
+  text-align: left;
+}
+.oj-throws th {
+  color: var(--mute);
+  font-weight: 600;
+}
+.oj-credit {
+  margin-top: 12px;
+  font-size: 14px;
+}
+.oj-marks {
+  margin: 0;
+  padding: 0 10px 8px;
+  list-style: none;
+  font-size: 13px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: 28px;
+  min-height: calc(28px * 5 + 8px);
+  align-content: start;
+}
+@container (min-width: 620px) {
+  .oj-marks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-height: calc(28px * 3 + 8px);
+  }
+}
+.oj-marks li {
+  min-width: 0;
+}
+.oj-marks b {
+  font-variant-numeric: tabular-nums;
+}
+.oj-transport {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas: "play scrub" "time speed";
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 10px 2px;
+}
+@container (min-width: 620px) {
+  .oj-transport {
+    grid-template-columns: 44px minmax(0, 1fr) 11.5em 172px;
+    grid-template-areas: "play scrub time speed";
+  }
+}
+.oj-play {
+  grid-area: play;
+  width: 44px;
+  height: 34px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.oj-scrub {
+  grid-area: scrub;
+  min-width: 0;
+  width: 100%;
+  accent-color: var(--accent);
+}
+.oj-time {
+  grid-area: time;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  min-height: 1.4em;
+}
+@container (min-width: 620px) {
+  .oj-time {
+    text-align: right;
+  }
+}
+.oj-apphead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 4px 10px;
+}
+.oj-apphead .oj-pm {
+  gap: 6px;
+}
+.oj-apphead .btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  height: 30px;
+}
+.oj-cap {
+  margin: 0;
+  font-size: 13px;
+}
+.oj-ball.hl {
+  stroke: #d6336c;
+  stroke-width: 0.012;
+  opacity: 1;
+}
+.oj-zone.hl {
+  stroke: #d6336c;
+  stroke-width: 0.005;
+}
+.oj-mark {
+  cursor: pointer;
+}
+.oj-mark .hit {
+  stroke: transparent;
+  stroke-width: 0.05;
+}
+.oj-mark.cur line:not(.hit) {
+  stroke-width: 0.01;
+}
+.oj-mark.cur text {
+  font-weight: 700;
+  fill: #d6336c;
+}
+.oj-marks button {
+  max-width: 100%;
+  height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px;
+}
+.oj-marks li.cur button {
+  outline: 2px solid #d6336c;
+  background: rgba(214, 51, 108, 0.12);
+}
+.oj-marks li.bad {
+  color: #d33;
+}
+/* the layout options (A, B, C ...): one row of fixed height that scrolls sideways, so the stage never moves */
+.oj-options {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  height: 48px;
+  margin-bottom: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.oj-option {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 3px 11px;
+  border-radius: 10px;
+  line-height: 1.15;
+  cursor: pointer;
+}
+.oj-option-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.oj-option-nums {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.oj-option-key {
+  flex: 0 0 auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
