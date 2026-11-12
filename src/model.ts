@@ -776,8 +776,8 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       dwells[i] -= off;
     });
   }
-  // Placement variables: one launch/landing offset per KIND of throw (throwing hand, value, destination hand, x or not,
-  // multiplex slot), shared by every occurrence in the period; in a mirror-symmetric pattern a kind and its mirror
+  // Placement variables: one launch/landing offset per KIND of throw (throwing hand, value, destination hand, x or not),
+  // shared by every occurrence in the period; in a mirror-symmetric pattern a kind and its mirror
   // image share one too (the offsets are measured from each hand's own side). A kind splits only when no shared offset
   // clears: level 1 into two alternating sub-kinds by position in the period, level 2 into one path per throw.
   const mp = pat.mirrorPeriod;
@@ -787,7 +787,8 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     const x = /x/.test(th.token);
     // in a mirror-symmetric pattern a kind and its mirror image (the other hand) are one kind
     const h = mp ? "*" : th.hand;
-    const kind = `${h}|${th.v}|${cross ? "x" : "s"}|${x ? "x" : ""}|${th.sib}`;
+    // (a 4 thrown in a multiplex and a 4 thrown alone are one kind, as a juggler throws them: the same 4)
+    const kind = `${h}|${th.v}|${cross ? "x" : "s"}|${x ? "x" : ""}`;
     const pos = mp ? th.t % mp : th.t;
     return { kind, pos, own: mp ? `${pos}|${th.sib}|${h}` : `${i}`, h, v: th.v, cross, x, sib: th.sib };
   });
@@ -850,9 +851,38 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     });
     return kinds[i] === "throw" ? lead : i;
   });
-  const lead: Lead = { launch: launchLead, land: landLead };
+  // A kind keeps one launch point wherever it is thrown, alone or in a multiplex, so the kinds a multiplex joins
+  // share theirs (the 3s of [43]23 all leave from where the 4 does). `launchOf` gives, per throw, the throw whose
+  // class holds that shared point; splitting a kind (below) is what sets its launches apart again.
+  const launchCache = new Map<number[], number[]>();
+  const launchOf = (classOf: number[]) => {
+    let src = launchCache.get(classOf);
+    if (src) return src;
+    const up = classOf.map((_, i) => i);
+    const find = (c: number): number => (up[c] === c ? c : (up[c] = find(up[c])));
+    launchLead.forEach((j, i) => {
+      if (kinds[i] === "throw" && kinds[j] === "throw") up[find(classOf[i])] = find(classOf[j]);
+    });
+    src = launchLead.map((j, i) =>
+      kinds[i] === "throw" && kinds[j] === "throw" ? classOf.indexOf(find(classOf[i])) : j,
+    );
+    launchCache.set(classOf, src);
+    return src;
+  };
   const build = (classOf: number[], vs: Var[], dt = SEARCH_DT) =>
-    place(pat, params, K, kinds, flights, dwells, classOf, vs, lead, beat, dt);
+    place(
+      pat,
+      params,
+      K,
+      kinds,
+      flights,
+      dwells,
+      classOf,
+      vs,
+      { launch: launchOf(classOf), land: landLead },
+      beat,
+      dt,
+    );
   const viol = (l: Placed) => {
     let v = 0;
     // linear in the shortfall (with a hair of margin), so a near-miss is never traded for less hand travel
@@ -869,7 +899,7 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     const out = new Set<number>();
     classOf.forEach((c, i) => {
       if (c < 0) return;
-      const j = launchLead[i];
+      const j = launchOf(classOf)[i];
       const a = kinds[j] === "throw" ? vs[classOf[j]].a : K.xi;
       if (a >= vs[classOf[landLead[i]]].c - 1e-6) out.add(c);
     });
@@ -899,6 +929,9 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
         let moved = false;
         for (let k = 0; k < vs.length; k++)
           for (const key of ["a", "c"] as const) {
+            // (a launch point another class holds, see `launchOf`: nothing to move)
+            if (key === "a" && !launchOf(classOf).some((j) => kinds[j] === "throw" && classOf[j] === k))
+              continue;
             let bestVal = vs[k][key];
             const cands = [-3, -2, -1, 1, 2, 3].map((m) => bestVal + m * step);
             // matching moves: this point exactly onto another kind's point, or onto the fixed points of holds and
@@ -1046,8 +1079,8 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
         const lvNew = pick.lv;
         levels.set(pick.k, lvNew);
         sol = pick.sol;
-        const [h, v, cr, , sib] = pick.k.split("|");
-        const word = `${cr === "x" ? "crossing " : ""}${v}s from ${h === "*" ? "either hand (mirror images)" : h === "L" ? "the left" : "the right"}${Number(sib) ? `, multiplex ball ${Number(sib) + 1}` : ""}`;
+        const [h, v, cr] = pick.k.split("|");
+        const word = `${cr === "x" ? "crossing " : ""}${v}s from ${h === "*" ? "either hand (mirror images)" : h === "L" ? "the left" : "the right"}`;
         splitMsgs.push(
           `No single path for the ${word} works; ` +
             (lvNew === 1 ? "they are two throws, alternating." : "every one is its own throw."),
@@ -1260,7 +1293,7 @@ export function handPoints(hands: Record<Hand, LHand>): number {
   return n;
 }
 
-/** Left/right asymmetry: for every kind of regular throw (value, crossing, x, multiplex slot) thrown by both hands,
+/** Left/right asymmetry: for every kind of regular throw (value, crossing, x) thrown by both hands,
  *  the difference of the two hands' mean |launch x| and mean |landing x|. Zero in mirror-symmetric patterns, whose
  *  mirror-image kinds share one path. */
 function asymmetry(pat: Pattern, throws: LThrow[]): number {
@@ -1269,7 +1302,7 @@ function asymmetry(pat: Pattern, throws: LThrow[]): number {
   throws.forEach((t, i) => {
     if (t.kind !== "throw") return;
     const th = pat.throws[i];
-    const key = `${th.v}|${th.toHand !== th.hand}|${/x/.test(th.token)}|${th.sib}`;
+    const key = `${th.v}|${th.toHand !== th.hand}|${/x/.test(th.token)}`;
     const e = acc.get(key) ?? { L: { a: 0, c: 0, k: 0 }, R: { a: 0, c: 0, k: 0 } };
     e[t.hand].a += Math.abs(t.launch.x);
     e[t.hand].c += Math.abs(t.land.x);

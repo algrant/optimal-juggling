@@ -423,6 +423,23 @@ test("multiplex: balls thrown together leave from one point, balls caught togeth
   }
 });
 
+test("a throw is the same throw alone or in a multiplex: the 4s of [54]24 and the 3s of [43]23 match, in every option", () => {
+  for (const [ss, v] of [
+    ["[54]24", 4],
+    ["[43]23", 3],
+  ]) {
+    for (const l of optimalLayouts(ss, P)) {
+      assert.equal(l.messages.length, 0, `${ss}: no split needed`);
+      const ts = l.throws.filter((t) => t.hand === "R" && t.v === v && t.kind === "throw");
+      assert.equal(ts.length, 2, ss);
+      assert.ok(
+        ts[0].launch.x === ts[1].launch.x && ts[0].land.x === ts[1].land.x,
+        `${ss}: ${ts.map((t) => `${t.label} ${t.launch.x}>${t.land.x}`).join(", ")}`,
+      );
+    }
+  }
+});
+
 test("balls landing in one hand together are caught one after the other: the 5 then the 6 of [56], CATCH_STAGGER apart; [45] clears", () => {
   const l = optimalLayout("[56]", P);
   const five = l.throws.find((t) => t.v === 5 && t.toHand === "R");
