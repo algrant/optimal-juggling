@@ -193,10 +193,16 @@ export default function Optimal() {
         ))}
       </div>
       <p className={(parsed.err ? "error" : "muted") + " oj-err"} role="status">
-        {parsed.err ?? (busy ? "searching…" : "")}
+        {parsed.err ??
+          (busy && (
+            <span className="oj-busy">
+              <span className="oj-spin" aria-hidden="true" /> searching for a layout of {text}… (long patterns
+              can take a minute)
+            </span>
+          ))}
       </p>
       {lay && r && (
-        <div className="oj-grid">
+        <div className={"oj-grid" + (busy ? " busy" : "")} aria-busy={busy}>
           <div className="oj-stagecol">
             <div className="card oj-card">
               <div className="oj-tools">

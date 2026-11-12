@@ -31,6 +31,47 @@ main.wide {
   margin: 0 0 8px;
   min-height: 1.5em;
 }
+/* a search is running: the drawing still up is the last one, so it fades (after a beat: quick searches do not flicker) */
+.oj-busy {
+  animation: oj-appear 0s 0.15s backwards;
+}
+.oj-spin {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 4px;
+  vertical-align: -0.08em;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: oj-spin 0.8s linear infinite;
+}
+/* (the settings stay lit: they are current, and still usable while it searches) */
+.oj-stagecol,
+.oj-read,
+.oj-throws {
+  transition: opacity 0.2s;
+}
+.oj-grid.busy :is(.oj-stagecol, .oj-read, .oj-throws) {
+  opacity: 0.4;
+  transition-delay: 0.15s;
+}
+@keyframes oj-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes oj-appear {
+  from {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .oj-spin {
+    animation: none;
+    border-right-color: var(--accent);
+  }
+}
 .oj-examples {
   display: flex;
   flex-wrap: wrap;
