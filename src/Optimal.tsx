@@ -4,6 +4,7 @@ import {
   ballsAt,
   autoArcSpacing,
   KALVAN_ARC_SPACING,
+  CATCH_STAGGER,
   START_SITESWAP,
   START_SPEED,
   START_TRACE,
@@ -425,6 +426,18 @@ export default function Optimal() {
                   </span>
                 </div>
               )}
+              {lay.pattern.multiplex && (
+                <Ctl
+                  label="catch stagger"
+                  unit="s"
+                  value={params.catchStagger ?? CATCH_STAGGER}
+                  min={0}
+                  max={0.2}
+                  step={0.01}
+                  dp={2}
+                  on={set("catchStagger")}
+                />
+              )}
               <button
                 className="chip"
                 title="What his program starts with (INIT): 7 balls, g 9.8, dwell ratio 0.66, hand period 0.40 s, ball 10 cm, error zone 25 cm, full speed, trace and error zones off; the fountain spacing is his cascade's P"
@@ -544,7 +557,9 @@ export default function Optimal() {
           A flat front view: x across, height up, no depth. Balls held in a hand are checked along the hand's
           path. Zips and other throws too short for the dwell get a fixed short flight between fixed points:
           they are left out of the search and are not checked against each other. Balls thrown together in a
-          multiplex leave from one point.
+          multiplex leave from one point; balls landing in one hand together land on one point, one after the
+          other (the catch stagger: the lower throw first, the higher one a moment later), where the siteswap
+          has them on one beat.
         </p>
       </div>
     </section>

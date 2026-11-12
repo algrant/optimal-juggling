@@ -32,6 +32,9 @@ export interface Params {
    *  under the line from catch to throw. Set only by the placement search, and only for patterns that are not his
    *  cascade or fountain, when his curve would carry a held ball into a flying one (see `layoutWith`). */
   handTangent?: number;
+  /** balls thrown in to land in one hand together are caught one after the other, this long apart, s (see
+   *  `CATCH_STAGGER`, the value when unset; 0: they land at the same instant) */
+  catchStagger?: number;
 }
 
 /** A cubic Hermite curve: the hand's (or any) position a fraction `u` of the way through a time `dt`, from `a` with
@@ -171,14 +174,14 @@ function assemble(
     out.set(k, l);
   });
   // Which ball of a multiplex gets which throw. Arrivals at each multiplex are listed first caught first (a held ball
-  // was in the hand already; balls thrown in arrive together, the longest flight counted first, a 1 last) and its
+  // was in the hand already; balls thrown in are caught the shortest flight first, see `CATCH_STAGGER`) and its
   // throws farthest first. Pairing the two lists in order is how jugglers usually do it (the first caught is thrown
   // the farthest); of all the pairings we take the one with the most distinct orbits, that one on a tie. The lists do
   // not depend on the beat, so the two halves of a mirror-symmetric pattern always pair, and orbit, alike.
   const held = (th: Raw) => th.v === 2 && th.toHand === th.hand;
   const arrive = new Map<string, number[]>();
   [...throws.keys()]
-    .sort((a, b) => +held(throws[b]) - +held(throws[a]) || throws[b].v - throws[a].v || a - b)
+    .sort((a, b) => +held(throws[b]) - +held(throws[a]) || throws[a].v - throws[b].v || a - b)
     .forEach((i) => {
       const land = throws[i].t + throws[i].v;
       const k = slot(land, throws[i].toHand);
@@ -667,6 +670,9 @@ export interface OptionInfo {
 
 /** tolerance on the error zone, m (Kalvan's optimum grazes exactly) */
 export const TOL = 1e-4;
+/** time between the catches of balls thrown in to land in one hand together, s. Ours, found by trying: from 0.08 s the
+ *  first ball is in the hand before the next comes within the error zone ([45] has no clear layout below it). */
+export const CATCH_STAGGER = 0.08;
 /** shortest flight treated as a real throw, s; below it (zips, 2x, hurried throws) a fixed short flight */
 const F_MIN = 0.1;
 /** nearest a hand's throw or catch point comes to the middle in searched layouts, m */
@@ -750,6 +756,26 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       dwells.push(d0);
     }
   });
+  // Balls thrown in to land in one hand together (for its next multiplex) are caught one after the other, as a juggler
+  // does it: the shortest flight first, a little early and lower still, the longest last, a little late and higher,
+  // the dwells taking up the difference. (Ours: on the siteswap they land on one beat. The other order, the longest
+  // first, brings their heights together and clears less.)
+  const stagger = Math.max(0, Math.min(params.catchStagger ?? CATCH_STAGGER, d0 / 2));
+  const landing = new Map<number, number[]>();
+  pat.throws.forEach((th, i) => {
+    if (kinds[i] !== "throw") return;
+    const k = th.next - pat.throws[th.next].sib;
+    landing.set(k, [...(landing.get(k) ?? []), i]);
+  });
+  const straight = (i: number) => +(pat.throws[i].toHand === pat.throws[i].hand);
+  for (const l of landing.values()) {
+    l.sort((a, b) => pat.throws[a].v - pat.throws[b].v || straight(a) - straight(b) || b - a);
+    l.forEach((i, n) => {
+      const off = (n - (l.length - 1) / 2) * stagger;
+      flights[i] += off;
+      dwells[i] -= off;
+    });
+  }
   // Placement variables: one launch/landing offset per KIND of throw (throwing hand, value, destination hand, x or not,
   // multiplex slot), shared by every occurrence in the period; in a mirror-symmetric pattern a kind and its mirror
   // image share one too (the offsets are measured from each hand's own side). A kind splits only when no shared offset
@@ -808,8 +834,8 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
   };
   // Balls that share a hand at one instant share its point: thrown together (a multiplex) they leave from the first
   // ball's launch point, and caught together (for the next multiplex) they land on the first one's landing point.
-  // shortcut: two balls that leave together AND land together (the 3s of [33]) keep their own landing points, since
-  // one shared path would put them on top of each other; they need a second dimension (a stack), upgrade then.
+  // Two balls that leave together AND land together (the 3s of [33]) share both points too, one flying a little higher
+  // (the catch stagger); with no stagger they keep their own landing points, or they would be one path.
   const launchLead = pat.throws.map((th, i) => i - th.sib);
   const slotOf = (i: number) => pat.throws[i].next - pat.throws[pat.throws[i].next].sib;
   // (whose point they share must not depend on the beat or the hand, or a mirror-symmetric pattern gets a lopsided
@@ -817,7 +843,8 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
   const landLead = pat.throws.map((th, i) => {
     let lead = i;
     pat.throws.forEach((o, j) => {
-      if (kinds[j] !== "throw" || slotOf(j) !== slotOf(i) || launchLead[j] === launchLead[i]) return;
+      if (kinds[j] !== "throw" || slotOf(j) !== slotOf(i)) return;
+      if (launchLead[j] === launchLead[i] && !stagger) return;
       const l = pat.throws[lead];
       if (o.v > l.v || (o.v === l.v && o.toHand === o.hand && l.toHand !== l.hand)) lead = j;
     });

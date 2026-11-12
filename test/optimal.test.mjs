@@ -18,6 +18,7 @@ import {
   kalvanHand,
   handAt,
   KALVAN_ARC_SPACING,
+  CATCH_STAGGER,
   startArcSpacing,
   START_SITESWAP,
   START_SPEED,
@@ -420,6 +421,21 @@ test("multiplex: balls thrown together leave from one point, balls caught togeth
         }
     }
   }
+});
+
+test("balls landing in one hand together are caught one after the other: the 5 then the 6 of [56], CATCH_STAGGER apart; [45] clears", () => {
+  const l = optimalLayout("[56]", P);
+  const five = l.throws.find((t) => t.v === 5 && t.toHand === "R");
+  const six = l.throws.find((t) => t.v === 6 && t.toHand === "R");
+  const gap = (((six.t + six.flight - five.t - five.flight) % l.period) + l.period) % l.period;
+  assert.ok(Math.abs(gap - CATCH_STAGGER) < 1e-9, `${gap}`);
+  // flight + dwell is still the throw's beats, and both land on the one point
+  for (const t of [five, six]) assert.ok(Math.abs(t.flight + t.dwellAfter - t.v * l.beat) < 1e-12);
+  assert.equal(five.land.x, six.land.x);
+  assert.equal(optimalLayout("[45]", P).collisions.length, 0);
+  // with no stagger they land at the same instant, as before
+  const z = optimalLayout("[56]", { ...P, catchStagger: 0 });
+  assert.ok(z.throws.every((t) => Math.abs(t.flight + P.dwellRatio * P.handPeriod - t.v * z.beat) < 1e-12));
 });
 
 test("a mirror-symmetric pattern gets a mirror-symmetric layout, in every option (multiplex too: [56], [45])", () => {
