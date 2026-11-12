@@ -422,6 +422,28 @@ test("multiplex: balls thrown together leave from one point, balls caught togeth
   }
 });
 
+test("a mirror-symmetric pattern gets a mirror-symmetric layout, in every option (multiplex too: [56], [45])", () => {
+  for (const ss of ["[56]", "[45]", "[54]24", "[43]23", "531", "55500", "(4,2x)*", "(6x,4)*"]) {
+    for (const l of optimalLayouts(ss, P)) {
+      const p = l.pattern;
+      for (const a of l.throws) {
+        const b = l.throws.find(
+          (t) =>
+            t.beat === (a.beat + p.mirrorPeriod) % p.period &&
+            t.hand !== a.hand &&
+            t.v === a.v &&
+            (t.toHand === t.hand) === (a.toHand === a.hand),
+        );
+        assert.ok(b, `${ss}: ${a.label} has a mirror image`);
+        assert.ok(
+          Math.abs(a.launch.x + b.launch.x) < 1e-9 && Math.abs(a.land.x + b.land.x) < 1e-9,
+          `${ss}: ${a.label} ${a.launch.x}>${a.land.x} against ${b.label} ${b.launch.x}>${b.land.x}`,
+        );
+      }
+    }
+  }
+});
+
 test("short throws are not checked against each other ((2x,2x) once the dwell makes its 2x short); 0 and 20 are handled", () => {
   const l = optimalLayout("(2x,2x)", { ...P, dwellRatio: 0.9 });
   assert.ok(l.throws.every((t) => t.kind === "short"));

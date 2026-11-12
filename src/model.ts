@@ -812,12 +812,17 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
   // one shared path would put them on top of each other; they need a second dimension (a stack), upgrade then.
   const launchLead = pat.throws.map((th, i) => i - th.sib);
   const slotOf = (i: number) => pat.throws[i].next - pat.throws[pat.throws[i].next].sib;
-  const landLead = pat.throws.map((_, i) =>
-    pat.throws.findIndex(
-      (_, j) =>
-        j === i || (kinds[j] === "throw" && slotOf(j) === slotOf(i) && launchLead[j] !== launchLead[i]),
-    ),
-  );
+  // (whose point they share must not depend on the beat or the hand, or a mirror-symmetric pattern gets a lopsided
+  // layout: the longest flight's, and of two equal ones the straight throw's)
+  const landLead = pat.throws.map((th, i) => {
+    let lead = i;
+    pat.throws.forEach((o, j) => {
+      if (kinds[j] !== "throw" || slotOf(j) !== slotOf(i) || launchLead[j] === launchLead[i]) return;
+      const l = pat.throws[lead];
+      if (o.v > l.v || (o.v === l.v && o.toHand === o.hand && l.toHand !== l.hand)) lead = j;
+    });
+    return kinds[i] === "throw" ? lead : i;
+  });
   const lead: Lead = { launch: launchLead, land: landLead };
   const build = (classOf: number[], vs: Var[], dt = SEARCH_DT) =>
     place(pat, params, K, kinds, flights, dwells, classOf, vs, lead, beat, dt);
