@@ -268,6 +268,29 @@ function parseSync(text: string): Pattern {
   return assemble(text, true, period, raw, star ? rows.length * 2 : null);
 }
 
+/** The orbit of each throw (by index in `throws`): throws share an orbit when one ball makes them all in turn. The
+ *  two halves of a mirror-symmetric pattern are one orbit, as on the siteswap itself (531: the 5 and the 1 share
+ *  one, the 3 has its own). */
+export function orbits(pat: Pattern): number[] {
+  const mp = pat.mirrorPeriod;
+  // a throw and its mirror image (half a cycle later, from the other hand) get the same key
+  const key = (i: number) => {
+    const th = pat.throws[i];
+    return mp ? `${th.t % mp}|${th.t >= mp ? other(th.hand) : th.hand}|${th.sib}` : `${i}`;
+  };
+  const ids = new Map<string, number>();
+  const out = pat.throws.map(() => -1);
+  pat.throws.forEach((_, i) => {
+    if (out[i] >= 0) return;
+    const cycle: number[] = [];
+    for (let j = i; !cycle.includes(j); j = pat.throws[j].next) cycle.push(j);
+    const k = cycle.map(key).sort()[0];
+    if (!ids.has(k)) ids.set(k, ids.size);
+    for (const j of cycle) out[j] = ids.get(k)!;
+  });
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Kalvan's equations for the cascade and the fountain
 

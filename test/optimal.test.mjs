@@ -8,6 +8,7 @@ import {
   handTravel,
   handPoints,
   parseSiteswap,
+  orbits,
   kalvan,
   ballsAt,
   tubes,
@@ -429,6 +430,21 @@ test("short throws are not checked against each other ((2x,2x) once the dwell ma
   assert.ok(optimalLayout("(2x,2x)", P).collisions.length > 0);
   assert.throws(() => parseSiteswap("0"));
   assert.equal(optimalLayout("20", P).messages.length, 0);
+});
+
+test("orbits: as on the siteswap, the mirror halves together (531: {5,1} and {3})", () => {
+  const count = (ss) => new Set(orbits(parseSiteswap(ss))).size;
+  const p = parseSiteswap("531");
+  const o = orbits(p);
+  const of = (v) => new Set(p.throws.flatMap((t, i) => (t.v === v ? [o[i]] : [])));
+  assert.equal(count("531"), 2);
+  assert.deepEqual(of(5), of(1));
+  assert.notDeepEqual(of(5), of(3));
+  assert.equal(count("7"), 1);
+  assert.equal(count("441"), 1);
+  assert.equal(count("55500"), 3);
+  assert.equal(count("b97531"), 3);
+  assert.equal(count("(4,4)"), 2);
 });
 
 test("parsing: async, multiplex, sync, star; invalid ones rejected", () => {

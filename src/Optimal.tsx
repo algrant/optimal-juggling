@@ -10,6 +10,7 @@ import {
   START_ZONES,
   DEFAULT_PARAMS,
   handAt,
+  orbits,
   parseSiteswap,
   tubes,
   type Layout,
@@ -656,6 +657,9 @@ function ThrowTable({ lay }: { lay: Layout }) {
   );
 }
 
+/** one colour per orbit: hues a golden angle apart, so neighbours in the list are far apart on the wheel */
+const orbitColour = (k: number) => `hsl(${(205 + k * 137.5) % 360} 70% 55%)`;
+
 /** cool = clear, warm = inside the error zone: by the nearest distance as a multiple of the zone */
 function nearColour(ratio: number, alpha = 1) {
   const a = alpha < 1 ? ` / ${alpha}` : "";
@@ -747,6 +751,27 @@ function Stage({
               .map((p) => `${p.x.toFixed(4)},${(-p.y).toFixed(4)}`)
               .join("L"),
         })),
+    [lay],
+  );
+  // Show Trace: the flights coloured by orbit, and the hands' paths: carrying a ball (in its orbit's colour, so an
+  // orbit is a closed loop) and coming back empty (dashed)
+  const orb = useMemo(() => orbits(lay.pattern), [lay]);
+  const handPaths = useMemo(
+    () =>
+      (["L", "R"] as const).flatMap((h) => {
+        const pts = lay.hands[h].points;
+        return pts.flatMap((p, k) => {
+          const t1 = pts[(k + 1) % pts.length].t + (k + 1 === pts.length ? lay.period : 0);
+          if (t1 - p.t < 1e-9) return [];
+          const d =
+            "M" +
+            [...Array(25)]
+              .map((_, m) => handAt(lay, h, p.t + ((t1 - p.t) * m) / 24))
+              .map((q) => `${q.x.toFixed(4)},${(-q.y).toFixed(4)}`)
+              .join("L");
+          return [{ key: h + k, d, carry: p.kind === "catch", i: p.throwIndex }];
+        });
+      }),
     [lay],
   );
   const tubeData = useMemo(() => (view === "tubes" ? tubes(lay, tubeMode) : []), [lay, view, tubeMode]);
@@ -861,7 +886,22 @@ function Stage({
           ))}
         {(trace || view === "tubes") &&
           arcs.map(({ t, d }) => (
-            <path key={t.i} d={d} className={"oj-trace" + (view === "tubes" ? " thin" : "")} />
+            <path
+              key={t.i}
+              d={d}
+              className={"oj-trace" + (view === "tubes" ? " thin" : "")}
+              style={view === "tubes" ? undefined : { stroke: orbitColour(orb[t.i]) }}
+            />
+          ))}
+        {trace &&
+          view === "anim" &&
+          handPaths.map((p) => (
+            <path
+              key={p.key}
+              d={p.d}
+              className={"oj-trace" + (p.carry ? "" : " empty")}
+              style={p.carry ? { stroke: orbitColour(orb[p.i]) } : undefined}
+            />
           ))}
         {view === "tubes" &&
           marks.map((m, k) => {

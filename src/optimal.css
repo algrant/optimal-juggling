@@ -187,6 +187,11 @@ main.wide {
   stroke: var(--oj-trace);
   stroke-width: 0.005;
 }
+.oj-trace.empty {
+  stroke: var(--ink);
+  stroke-dasharray: 0.012 0.012;
+  opacity: 0.4;
+}
 .oj-trace.thin {
   stroke: var(--ink);
   stroke-width: 0.002;
