@@ -13,6 +13,7 @@ import {
   ballsAt,
   tubes,
   nearestFeasible,
+  handSpread,
   autoArcSpacing,
   hermite,
   kalvanHand,
@@ -438,6 +439,25 @@ test("a throw is the same throw alone or in a multiplex: the 4s of [54]24 and th
       );
     }
   }
+});
+
+test("home points: a hand throws from one point and catches at one point where that clears (645, 633, 22[64][64]1)", () => {
+  for (const ss of ["645", "633", "b97531", "[54]24", "22[64][64]1"]) {
+    const l = optimalLayout(ss, P);
+    assert.equal(l.collisions.length, 0, ss);
+    assert.ok(handSpread(l.throws) < 1e-9, `${ss}: spread ${handSpread(l.throws)}`);
+    assert.ok(
+      !l.messages.some((m) => /reverse-cascade|No single path/.test(m)),
+      `${ss}: ${l.messages.join()}`,
+    );
+  }
+  // the 6 and the 4 of a [64] going to the same hand leave one point and land on one point: one path, two heights
+  const l = optimalLayout("22[64][64]1", P);
+  const six = l.throws.find((t) => t.v === 6);
+  const four = l.throws.find((t) => t.v === 4 && t.hand === six.hand && t.beat === six.beat);
+  assert.ok(six.launch.x === four.launch.x && six.land.x === four.land.x && six.height > four.height);
+  // 531 keeps its two catch points: one point would put the catches far out, at twice the hand travel
+  assert.ok(handSpread(optimalLayout("531", P).throws) > 0.1);
 });
 
 test("balls landing in one hand together are caught one after the other: the 5 then the 6 of [56], CATCH_STAGGER apart; [45] clears", () => {

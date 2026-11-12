@@ -554,12 +554,14 @@ export default function Optimal() {
           straight line), and the tubes.
         </p>
         <p className="muted">
-          A flat front view: x across, height up, no depth. Balls held in a hand are checked along the hand's
-          path. Zips and other throws too short for the dwell get a fixed short flight between fixed points:
-          they are left out of the search and are not checked against each other. Balls thrown together in a
-          multiplex leave from one point; balls landing in one hand together land on one point, one after the
-          other (the catch stagger: the lower throw first, the higher one a moment later), where the siteswap
-          has them on one beat.
+          A flat front view: x across, height up, no depth. The search starts from one throw point and one
+          catch point per hand and moves a throw off them only as far as clearing needs; the same throw is
+          always thrown the same way. Balls held in a hand are checked along the hand's path. Zips and other
+          throws too short for the dwell get a fixed short flight between fixed points: they are left out of
+          the search and are not checked against each other. Balls thrown together in a multiplex leave from
+          one point, and on one path when they go to the same hand; balls landing in one hand together land on
+          one point, one after the other (the catch stagger: the lower throw first, the higher one a moment
+          later), where the siteswap has them on one beat.
         </p>
       </div>
     </section>

@@ -673,6 +673,10 @@ export const TOL = 1e-4;
 /** time between the catches of balls thrown in to land in one hand together, s. Ours, found by trying: from 0.08 s the
  *  first ball is in the hand before the next comes within the error zone ([45] has no clear layout below it). */
 export const CATCH_STAGGER = 0.08;
+/** the part of a flight, at each end, in which balls sharing the hand it leaves or lands in may be closer than the
+ *  error zone (they must part by it: a multiplex leaves one point). A quarter: two balls thrown together to the same
+ *  hand (the 6 and 4 of [64]) go up one path and are the zone apart only by then; at a fifth they had to be split. */
+const TOGETHER = 0.25;
 /** shortest flight treated as a real throw, s; below it (zips, 2x, hurried throws) a fixed short flight */
 const F_MIN = 0.1;
 /** nearest a hand's throw or catch point comes to the middle in searched layouts, m */
@@ -687,6 +691,10 @@ const FINE_DT = 0.002;
 const W_VIOL = 1e4;
 const W_POINTS = 0.05;
 const W_ASYM = 0.5;
+/** per metre a hand's throw points, and its catch points, are spread: a juggler throws from one place and catches in
+ *  one place, near enough. 2 keeps them together where that is cheap and lets a catch point move out where holding it
+ *  would cost far more hand travel (531; at 5 its catches go 87 cm wide to stay on one point) */
+const W_SPREAD = 2;
 const REVERSE_HARD = 1e5;
 const REVERSE_SOFT = 50;
 /** two layouts are one option when every launch and landing point is within this, m */
@@ -809,8 +817,10 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     info.forEach((q) => {
       if (!q) return classOf.push(-1);
       const lv = levels.get(q.kind) ?? 0;
-      const id =
-        lv === 0
+      // ("home": every kind in one class per hand, so one throw point and one catch point, the search's first start)
+      const id = levels.get("home")
+        ? q.h
+        : lv === 0
           ? q.kind
           : lv === 1
             ? `${q.kind}#${rank.get(q.kind)!.get(q.pos)! % 2}`
@@ -921,7 +931,11 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
   //     landing heights are fixed (0 and Kalvan's dy), so a flight's height is set by its time alone, and the
   //     symmetry that is left to choose is in the points.
   const rank = (l: Placed, vs: Var[], classOf: number[]) =>
-    l.travel + W_POINTS * l.points + W_ASYM * l.asym + reverseCost * reversed(vs, classOf).size;
+    l.travel +
+    W_POINTS * l.points +
+    W_ASYM * l.asym +
+    W_SPREAD * l.spread +
+    reverseCost * reversed(vs, classOf).size;
   const cost = (l: Placed, vs: Var[], classOf: number[]) => W_VIOL * viol(l) + rank(l, vs, classOf);
   /** coordinate descent on the shared offsets, from one start */
   const descend = (classOf: number[], start: Var[], steps = [D / 4, D / 8, D / 16], dt = SEARCH_DT) => {
@@ -979,9 +993,19 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     return sum.map((s) => ({ a: s.a / s.k, c: s.c / s.k }));
   };
   /** structurally different starts: the search ends in a different clear layout from each, and those are the options */
-  const starts = (classOf: number[], n: number): [string, Var[]][] => {
+  const starts = (classOf: number[], n: number, isHome: boolean): [string, Var[]][] => {
     const kal = startVars(classOf, n);
-    const out: [string, Var[]][] = [["Kalvan's spacing", kal]];
+    const out: [string, Var[]][] = [];
+    // one throw point and one catch point per hand, searched on its own first (two numbers a hand): where a juggler
+    // starts, and the other kinds' points move off it only as far as clearing needs
+    if (!isHome) {
+      const home = solve(new Map([["home", 1]]), false);
+      out.push([
+        "home points",
+        [...Array(n)].map((_, c) => ({ ...home.vs[home.classOf[classOf.indexOf(c)]] })),
+      ]);
+    }
+    out.push(["Kalvan's spacing", kal]);
     const hv = hintVars(classOf, n);
     if (hv) out.push(["previous", hv]);
     out.push(["narrow", startVars(classOf, n, -0.1, 0)]);
@@ -1027,7 +1051,7 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       "|" +
       reverseCost;
     const runs: Run[] = [];
-    for (const [name, vs] of starts(classOf, n)) {
+    for (const [name, vs] of starts(classOf, n, !!levels.get("home"))) {
       const key = lk + "|" + name;
       let run = runCache.get(key);
       if (!run) {
@@ -1259,6 +1283,7 @@ interface Placed {
   throws: LThrow[];
   hands: Record<Hand, LHand>;
   approaches: Approach[];
+  spread: number;
   travel: number;
   points: number;
   asym: number;
@@ -1296,6 +1321,19 @@ export function handPoints(hands: Record<Hand, LHand>): number {
       n += seen.length;
     }
   return n;
+}
+
+/** How far a hand's throw points are spread, plus how far its catch points are, both hands, m (0 when each hand
+ *  throws from one point and catches at one point). Searched throws only: holds and short throws have fixed points. */
+export function handSpread(throws: LThrow[]): number {
+  let s = 0;
+  for (const h of ["L", "R"] as Hand[])
+    for (const xs of [
+      throws.filter((t) => t.kind === "throw" && t.hand === h).map((t) => t.launch.x),
+      throws.filter((t) => t.kind === "throw" && t.toHand === h).map((t) => t.land.x),
+    ])
+      if (xs.length) s += Math.max(...xs) - Math.min(...xs);
+  return s;
 }
 
 /** Left/right asymmetry: for every kind of regular throw (value, crossing, x) thrown by both hands,
@@ -1394,6 +1432,7 @@ function place(
     throws,
     hands,
     approaches: aps,
+    spread: handSpread(throws),
     travel: handTravel(hands),
     points: handPoints(hands),
     asym: asymmetry(pat, throws),
@@ -1443,10 +1482,10 @@ function flightAt(th: LThrow, s: number, g: number): Vec {
  *  of a segment to the origin, in closed form. Later periods are tiled (flights spill past the period). Holds
  *  are not flights (zips and hurried throws, short flights, are, though not against each other): every ball held in a hand is checked by `handApproaches`. Two balls
  *  leaving or arriving together (a multiplex) cannot be apart at the hand itself: they are checked against the
- *  error zone over the middle 60 % of the flight and against the ball diameter where that window starts and ends. */
+ *  error zone over the middle half of the flight and against the ball diameter where that window starts and ends. */
 function approaches(throws: LThrow[], T: number, p: Params): Approach[] {
   // Multiplex balls leaving or landing together: touching at the hand is allowed (only the ball diameter must be
-  // kept once they have parted, at the edge of the 20 % window), the error zone applies in the middle 60 %.
+  // kept once they have parted, at the edge of the `TOGETHER` window), the error zone applies in the middle half.
   const fl = throws.filter((t) => t.kind !== "hold");
   const out: Approach[] = [];
   for (let x = 0; x < fl.length; x++)
@@ -1467,11 +1506,11 @@ function approaches(throws: LThrow[], T: number, p: Params): Approach[] {
         const Bs = { ...B, t: bt };
         const edgeAt: number[] = [];
         if (Math.abs(A.t - bt) < 1e-9 && A.hand === B.hand) {
-          lo += 0.2 * Math.min(A.flight, B.flight);
+          lo += TOGETHER * Math.min(A.flight, B.flight);
           edgeAt.push(lo);
         }
         if (Math.abs(A.t + A.flight - bt - B.flight) < 1e-9 && A.toHand === B.toHand) {
-          hi -= 0.2 * Math.min(A.flight, B.flight);
+          hi -= TOGETHER * Math.min(A.flight, B.flight);
           edgeAt.push(hi);
         }
         for (const s of edgeAt) {
@@ -1527,7 +1566,7 @@ function approaches(throws: LThrow[], T: number, p: Params): Approach[] {
  *  position, which follows Kalvan's cubic Hermite curve from the catch point to the throw point (`hermite`). This
  *  covers a ball arriving at a hand while another leaves it: they are the hand move E apart (E = F in the fountain).
  *  Balls held in the same hand are exempt in multiplex and hold patterns, where the hand holds them together, and so
- *  are a flying ball within the first / last 20 % of its flight against a ball held in the hand it leaves / lands
+ *  are a flying ball within the first / last quarter of its flight against a ball held in the hand it leaves / lands
  *  in (matching the flight pairs above). Elsewhere every pair counts, held together or not. */
 function handApproaches(lay: BallLayout, together: boolean, need: number, dt = FINE_DT): Approach[] {
   const T = lay.period;
@@ -1544,9 +1583,9 @@ function handApproaches(lay: BallLayout, together: boolean, need: number, dt = F
           const near = (F: (typeof bs)[number], H: (typeof bs)[number]) =>
             F.flying &&
             H.hand &&
-            ((lay.throws[F.i].hand === H.hand && s - F.t0 < 0.2 * lay.throws[F.i].flight) ||
+            ((lay.throws[F.i].hand === H.hand && s - F.t0 < TOGETHER * lay.throws[F.i].flight) ||
               (lay.throws[F.i].toHand === H.hand &&
-                F.t0 + lay.throws[F.i].flight - s < 0.2 * lay.throws[F.i].flight));
+                F.t0 + lay.throws[F.i].flight - s < TOGETHER * lay.throws[F.i].flight));
           if (near(A, B) || near(B, A)) continue;
         }
         const d = Math.hypot(A.p.x - B.p.x, A.p.y - B.p.y);
