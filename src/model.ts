@@ -170,21 +170,64 @@ function assemble(
     l.push(i);
     out.set(k, l);
   });
-  const used = new Map<string, number>();
-  for (const th of throws) {
-    const land = th.t + th.v;
-    const k = slot(land, th.toHand);
-    const l = out.get(k);
-    const n = used.get(k) ?? 0;
-    if (!l || n >= l.length)
-      throw new Error(
-        `not a valid pattern: more balls land on beat ${land % period} (${th.toHand}) than leave it`,
-      );
-    used.set(k, n + 1);
-    th.next = l[n];
-    th.nextShift = Math.round((land - throws[l[n]].t) / period);
+  // Which ball of a multiplex gets which throw. Arrivals at each multiplex are listed first caught first (a held ball
+  // was in the hand already; balls thrown in arrive together, the longest flight counted first, a 1 last) and its
+  // throws farthest first. Pairing the two lists in order is how jugglers usually do it (the first caught is thrown
+  // the farthest); of all the pairings we take the one with the most distinct orbits, that one on a tie. The lists do
+  // not depend on the beat, so the two halves of a mirror-symmetric pattern always pair, and orbit, alike.
+  const held = (th: Raw) => th.v === 2 && th.toHand === th.hand;
+  const arrive = new Map<string, number[]>();
+  [...throws.keys()]
+    .sort((a, b) => +held(throws[b]) - +held(throws[a]) || throws[b].v - throws[a].v || a - b)
+    .forEach((i) => {
+      const land = throws[i].t + throws[i].v;
+      const k = slot(land, throws[i].toHand);
+      const l = arrive.get(k) ?? [];
+      if (l.length >= (out.get(k)?.length ?? 0))
+        throw new Error(
+          `not a valid pattern: more balls land on beat ${land % period} (${throws[i].toHand}) than leave it`,
+        );
+      arrive.set(k, [...l, i]);
+    });
+  for (const [k, l] of out)
+    if ((arrive.get(k)?.length ?? 0) !== l.length) throw new Error("not a valid pattern");
+  // one choice (a permutation) per multiplex, shared with its mirror image
+  const groups = new Map<string, string[]>();
+  for (const [k, l] of out) {
+    if (l.length < 2) continue;
+    const th = throws[l[0]];
+    const id = mirrorPeriod ? `${th.t % mirrorPeriod}|${th.t >= mirrorPeriod ? other(th.hand) : th.hand}` : k;
+    groups.set(id, [...(groups.get(id) ?? []), k]);
   }
-  for (const [k, l] of out) if ((used.get(k) ?? 0) !== l.length) throw new Error("not a valid pattern");
+  const perms = (n: number): number[][] =>
+    n <= 1
+      ? [[0]]
+      : perms(n - 1).flatMap((p) => [...Array(n)].map((_, at) => [...p.slice(0, at), n - 1, ...p.slice(at)]));
+  const link = (choice: number[][]) => {
+    const next = throws.map(() => -1);
+    for (const [k, l] of out) {
+      const far = [...l].sort((a, b) => throws[b].v - throws[a].v || a - b);
+      const g = [...groups.values()].findIndex((ks) => ks.includes(k));
+      arrive.get(k)!.forEach((i, n) => (next[i] = far[g < 0 ? n : choice[g][n]]));
+    }
+    return next;
+  };
+  const sizes = [...groups.values()].map((ks) => out.get(ks[0])!.length);
+  let choices: number[][][] = [[]];
+  for (const n of sizes) choices = choices.flatMap((c) => perms(n).map((p) => [...c, p]));
+  // shortcut: past a few hundred pairings (several large multiplexes) only the jugglers' pairing is taken
+  if (choices.length > 720) choices = [sizes.map((n) => [...Array(n).keys()])];
+  let best = link(choices[0]);
+  let most = new Set(orbitIds(throws, best, mirrorPeriod)).size;
+  for (const c of choices.slice(1)) {
+    const next = link(c);
+    const n = new Set(orbitIds(throws, next, mirrorPeriod)).size;
+    if (n > most) [best, most] = [next, n];
+  }
+  throws.forEach((th, i) => {
+    th.next = best[i];
+    th.nextShift = Math.round((th.t + th.v - throws[best[i]].t) / period);
+  });
   const total = throws.reduce((s, th) => s + th.v, 0);
   const balls = total / period;
   if (Math.abs(balls - Math.round(balls)) > 1e-9)
@@ -272,19 +315,26 @@ function parseSync(text: string): Pattern {
  *  two halves of a mirror-symmetric pattern are one orbit, as on the siteswap itself (531: the 5 and the 1 share
  *  one, the 3 has its own). */
 export function orbits(pat: Pattern): number[] {
-  const mp = pat.mirrorPeriod;
+  return orbitIds(
+    pat.throws,
+    pat.throws.map((th) => th.next),
+    pat.mirrorPeriod,
+  );
+}
+
+function orbitIds(throws: Raw[], next: number[], mp: number | null): number[] {
   // a throw and its mirror image (half a cycle later, from the other hand) get the same key
   const key = (i: number) => {
-    const th = pat.throws[i];
-    return mp ? `${th.t % mp}|${th.t >= mp ? other(th.hand) : th.hand}|${th.sib}` : `${i}`;
+    const th = throws[i];
+    return mp ? `${th.t % mp}|${th.t >= mp ? other(th.hand) : th.hand}|${th.v}` : `${i}`;
   };
   const ids = new Map<string, number>();
-  const out = pat.throws.map(() => -1);
-  pat.throws.forEach((_, i) => {
+  const out = throws.map(() => -1);
+  throws.forEach((_, i) => {
     if (out[i] >= 0) return;
     const cycle: number[] = [];
-    for (let j = i; !cycle.includes(j); j = pat.throws[j].next) cycle.push(j);
-    const k = cycle.map(key).sort()[0];
+    for (let j = i; !cycle.includes(j); j = next[j]) cycle.push(j);
+    const k = cycle.map(key).sort().join(" ");
     if (!ids.has(k)) ids.set(k, ids.size);
     for (const j of cycle) out[j] = ids.get(k)!;
   });

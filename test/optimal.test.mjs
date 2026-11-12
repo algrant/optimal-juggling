@@ -445,6 +445,21 @@ test("orbits: as on the siteswap, the mirror halves together (531: {5,1} and {3}
   assert.equal(count("55500"), 3);
   assert.equal(count("b97531"), 3);
   assert.equal(count("(4,4)"), 2);
+  // mirror-symmetric patterns, multiplex too: a throw and its mirror image (half a cycle on, other hand) share an orbit
+  for (const ss of ["[54]24", "[43]23", "531", "(4,2x)*", "(6x,4)*"]) {
+    const q = parseSiteswap(ss);
+    const oq = orbits(q);
+    q.throws.forEach((a, i) => {
+      const j = q.throws.findIndex(
+        (b) => b.t === (a.t + q.mirrorPeriod) % q.period && b.hand !== a.hand && b.v === a.v,
+      );
+      assert.ok(j >= 0 && oq[i] === oq[j], `${ss}: ${a.token} at ${a.t}`);
+    });
+  }
+  // of the ways a multiplex can hand its balls on, the one with the most distinct orbits: [54]24 has the 5s with the
+  // lone 4s, and the multiplex 4 with the held 2 (pairing first caught to farthest thrown would make it one orbit)
+  assert.equal(count("[54]24"), 2);
+  assert.equal(count("[43]23"), 3);
 });
 
 test("a held 2 is no throw and no catch: the hand has waypoints only for real throws (522: one throw, one catch per hand)", () => {
