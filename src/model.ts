@@ -521,7 +521,7 @@ export interface HandPoint {
   t: number;
   kind: "catch" | "throw";
   p: Vec;
-  /** the ball's velocity there (incoming at a catch, outgoing at a throw); zero for holds */
+  /** the ball's velocity there (incoming at a catch, outgoing at a throw) */
   v: Vec;
   throwIndex: number;
 }
@@ -1285,20 +1285,16 @@ const dist = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y);
 function handOf(hand: Hand, throws: LThrow[], g: number, T: number): LHand {
   const pts: HandPoint[] = [];
   for (const th of throws) {
+    // a held 2 is neither thrown nor caught: the hand keeps the ball on its way to the next real catch or throw
+    if (th.kind === "hold") continue;
     if (th.hand === hand)
-      pts.push({
-        t: th.t,
-        kind: "throw",
-        p: th.launch,
-        v: th.kind === "hold" ? { x: 0, y: 0 } : { x: th.vx, y: th.vy },
-        throwIndex: th.i,
-      });
+      pts.push({ t: th.t, kind: "throw", p: th.launch, v: { x: th.vx, y: th.vy }, throwIndex: th.i });
     if (th.toHand === hand)
       pts.push({
         t: (th.t + th.flight) % T,
         kind: "catch",
         p: th.land,
-        v: th.kind === "hold" ? { x: 0, y: 0 } : { x: th.vx, y: th.vy - g * th.flight },
+        v: { x: th.vx, y: th.vy - g * th.flight },
         throwIndex: th.i,
       });
   }
@@ -1488,8 +1484,13 @@ export function handAt(lay: BallLayout, hand: Hand, s: number): Vec {
   const u = (tt - t0) / dt;
   // carrying a ball: Kalvan's cubic from the catch point and arrival velocity to the throw point and throw velocity
   if (a.kind === "catch") {
-    const k = lay.params.handTangent ?? 1;
-    return hermite(a.p, { x: a.v.x * k, y: a.v.y * k }, b.p, { x: b.v.x * k, y: b.v.y * k }, dt, u);
+    // shortcut: a ball kept longer than the dwell (through a held 2) would swing the cubic far under the hand, so its
+    // end velocities are scaled to dip as a normal dwell does; they no longer match the ball's. Upgrade: a rest phase.
+    const d0 = lay.params.dwellRatio * lay.params.handPeriod;
+    const k = (lay.params.handTangent ?? 1) * Math.min(1, d0 / dt);
+    // with a ball already in it the hand waits at the next catch point: it does not run down ahead of the arriving ball
+    const kb = b.kind === "catch" ? 0 : k;
+    return hermite(a.p, { x: a.v.x * k, y: a.v.y * k }, b.p, { x: b.v.x * kb, y: b.v.y * kb }, dt, u);
   }
   return hermite(a.p, damp(a.v, dt, 0.12), b.p, damp(b.v, dt, 0.12), 1, u);
 }

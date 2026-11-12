@@ -639,10 +639,10 @@ function ThrowTable({ lay }: { lay: Layout }) {
                     <span className="muted"> ({t.kind === "hold" ? "held" : "short"})</span>
                   )}
                 </td>
-                <td>{t.flight.toFixed(2)}</td>
+                <td>{t.kind === "hold" ? "—" : t.flight.toFixed(2)}</td>
                 <td>{t.kind === "hold" ? "—" : t.height.toFixed(2)}</td>
-                <td>{t.launch.x.toFixed(2)}</td>
-                <td>{t.land.x.toFixed(2)}</td>
+                <td>{t.kind === "hold" ? "—" : t.launch.x.toFixed(2)}</td>
+                <td>{t.kind === "hold" ? "—" : t.land.x.toFixed(2)}</td>
                 <td>{t.kind === "hold" ? "—" : t.velocity.toFixed(2)}</td>
                 <td>{t.kind === "hold" ? "—" : t.angle.toFixed(1)}</td>
               </tr>

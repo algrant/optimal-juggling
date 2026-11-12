@@ -447,6 +447,21 @@ test("orbits: as on the siteswap, the mirror halves together (531: {5,1} and {3}
   assert.equal(count("(4,4)"), 2);
 });
 
+test("a held 2 is no throw and no catch: the hand has waypoints only for real throws (522: one throw, one catch per hand)", () => {
+  for (const ss of ["522", "[54]24", "423", "42"]) {
+    const l = optimalLayout(ss, P);
+    assert.equal(l.collisions.length, 0, ss);
+    for (const h of ["L", "R"])
+      for (const p of l.hands[h].points) assert.notEqual(l.throws[p.throwIndex].kind, "hold", `${ss} ${h}`);
+  }
+  const l = optimalLayout("522", P);
+  assert.equal(l.hands.R.points.length, 2);
+  // and the long carry does not swing far under the hand: no deeper than about a normal dwell's dip
+  let low = 0;
+  for (let k = 0; k < 400; k++) low = Math.min(low, handAt(l, "R", (k / 400) * l.period).y);
+  assert.ok(low > -0.25, `${low}`);
+});
+
 test("parsing: async, multiplex, sync, star; invalid ones rejected", () => {
   assert.equal(parseSiteswap("531").balls, 3);
   assert.equal(parseSiteswap("531").period, 6);
