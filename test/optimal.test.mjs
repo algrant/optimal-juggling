@@ -622,17 +622,40 @@ test("Kalvan's cascades and fountains are unchanged by the kinds: one kind per h
   shown(optimalLayout("3", S92).minSeparation, 0.1029, 4, "3 min separation, as before");
 });
 
-test("a kind splits only when no single path clears: 414 with a 45 cm error zone needs two 4s (at the 0.66 default the split begins at 45 cm; 44 cm still has one path), said in the messages", () => {
-  const l = optimalLayout("414", { ...P, errorZone: 0.45 });
+test("one path per kind by default; splitting a kind into two throws is an option (414 with a 45 cm error zone)", () => {
+  const q = { ...P, errorZone: 0.45 };
+  // by default every 4 from a hand is the same throw
+  const d = optimalLayout("414", q);
+  const fours = d.throws.filter((t) => t.hand === "R" && t.v === 4 && t.kind === "throw");
+  assert.ok(
+    fours.length >= 2 && fours.every((t) => t.launch.x === fours[0].launch.x && t.land.x === fours[0].land.x),
+  );
+  assert.ok(!d.messages.some((m) => /No single path/.test(m)));
+  assert.equal(d.collisions.length, 0, "and it clears as one path (with a deeper hand curve)");
+  // asked to split, the 4s become two throws and it clears
+  const l = optimalLayouts("414", q, { split: true })[0];
   assert.equal(l.collisions.length, 0);
   assert.ok(
     l.messages.some((m) => /No single path for the 4s from/.test(m) && /two throws/.test(m)),
     l.messages.join(),
   );
-  const f = fives(l, "R", 4);
-  assert.ok(f.length >= 2 && !f.every((t) => same(t, f[0])), "the 4s differ");
+  const f = l.throws.filter((t) => t.hand === "R" && t.v === 4 && t.kind === "throw");
+  assert.ok(
+    f.length >= 2 && !f.every((t) => t.launch.x === f[0].launch.x && t.land.x === f[0].land.x),
+    "the 4s differ",
+  );
   // and at the default zone the same pattern needs no split
   assert.equal(optimalLayout("414", P).messages.length, 0);
+  // 22[64][64]1: both [64]s of a hand are the same throw, and it clears
+  const m = optimalLayout("22[64][64]1", P);
+  assert.equal(m.collisions.length, 0);
+  for (const v of [6, 4]) {
+    const ts = m.throws.filter((t) => t.hand === "R" && t.v === v);
+    assert.ok(
+      ts.length === 2 && ts[0].launch.x === ts[1].launch.x && ts[0].land.x === ts[1].land.x,
+      `the ${v}s match`,
+    );
+  }
 });
 
 // INIT in the decompiled Forth (archive/optimal-juggler/forth-listing.txt):

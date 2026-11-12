@@ -700,6 +700,10 @@ export interface SearchOpts {
   hint?: Layout | null;
   /** false: stop at the first start that clears (one option; for the feasibility searches) */
   collect?: boolean;
+  /** true: when no single path per kind of throw clears, let a kind become two alternating throws, then one per
+   *  throw. Off by default: a juggler throws the same 4 the same way every time, so the closest single-path layout is
+   *  shown instead, with how close it comes. */
+  split?: boolean;
 }
 
 /** The default layout: for Kalvan's cascades and fountains his own, otherwise the lowest-cost clear one. */
@@ -1053,7 +1057,7 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       levels = new Map();
       splitMsgs = [];
       sol = solve(levels, false);
-      while (unclear(sol.lay)) {
+      while (opts.split && unclear(sol.lay)) {
         // kinds in the clashing pairs that can still split
         const bad = new Set<string>();
         for (const ap of sol.lay.approaches)
@@ -1118,10 +1122,11 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
       else finals.push({ name: c.name, starts: [c.name], vs: c.vs, classOf: fin.classOf, lay: c.lay });
     }
     finals = finals.slice(0, MAX_OPTIONS);
-    // nothing clears: the best try, with its collisions said
+    // nothing clears: the closest try, worked over once more in finer steps (a near miss often clears there), with
+    // its collisions said if it still does not
     if (!finals.length) {
-      const l = build(sol.classOf, sol.vs, FINE_DT);
-      finals = [{ name: "best try", starts: ["best try"], vs: sol.vs, classOf: sol.classOf, lay: l }];
+      const d = descend(sol.classOf, sol.vs, [D / 32, D / 64], FINE_DT);
+      finals = [{ name: "best try", starts: ["best try"], vs: d.vs, classOf: sol.classOf, lay: d.cur }];
     }
   } else {
     const vs = startVars(first0.classOf, first0.n);
@@ -1190,7 +1195,7 @@ function searchLayouts(pat: Pattern, params: Params, search: boolean, opts: Sear
     if (collisions.length) {
       const c = collisions[0];
       messages.push(
-        `Impossible at this dwell and hand period: ${c.pair} come within ${(c.dist * 100).toFixed(1)} cm ` +
+        `${searched ? "No clear layout found; in the closest one" : "Impossible at this dwell and hand period:"} ${c.pair} come within ${(c.dist * 100).toFixed(1)} cm ` +
           `(${c.need === D ? "error zone" : "ball diameter"} ${(c.need * 100).toFixed(0)} cm)` +
           (collisions.length > 1
             ? `, and ${collisions.length - 1} more pair${collisions.length > 2 ? "s" : ""}.`
